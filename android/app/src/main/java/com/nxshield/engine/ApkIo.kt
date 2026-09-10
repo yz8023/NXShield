@@ -113,18 +113,21 @@ object ApkIo {
         val bos = ByteArrayOutputStream()
         val localOffsets = HashMap<String, Long>()
 
+        // 名称含非 ASCII 时需设置 UTF-8 标志位（bit 11），LFH 与 CD 必须一致
+        fun flagOf(name: String): Int = if (name.any { it.code > 0x7F }) 0x0800 else 0
+
         fun writeLocal(name: String, compression: Int, crc: Int, csize: Int, usize: Int, data: ByteArray) {
             val nameBytes = name.toByteArray(Charsets.UTF_8)
             val header = ByteArray(30 + nameBytes.size)
             header.w4(0, LOCAL_SIG)
             header.w2(4, 20)
-            header.w2(6, 0)
+            header.w2(6, flagOf(name))
             header.w2(8, compression)
             localOffsets[name] = bos.size().toLong()
             header.w2(10, 0); header.w2(12, 0)
             header.w4(14, crc.toLong())
-            header.w4(18, usize.toLong())
-            header.w4(22, csize.toLong())
+            header.w4(18, csize.toLong())   // 压缩后大小
+            header.w4(22, usize.toLong())   // 原始大小
             header.w2(26, nameBytes.size)
             header.w2(28, 0)
             nameBytes.copyInto(header, 30)
@@ -183,13 +186,13 @@ object ApkIo {
                 storedUsize = newData.size
                 storedCsize = if (deflate) deflate(newData, level).size else newData.size
                 compression = if (deflate) 8 else 0
-                cflag = if (existing == null) 0x0800 else 0
+                cflag = flagOf(name)
             } else {
                 storedCrc = existing!!.crc.toInt()
                 storedCsize = existing.compressedSize.toInt()
                 storedUsize = existing.uncompressedSize.toInt()
                 compression = existing.compression
-                cflag = existing.flags
+                cflag = flagOf(name)
             }
             centralBytes.w4(centralOff, CENTRAL_SIG)
             centralBytes.w2(centralOff + 4, 20)
