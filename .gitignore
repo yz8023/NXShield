@@ -28,3 +28,12 @@ frontend/dist/
 # Logs
 *.log
 *.jsonl
+
+# Android / Gradle
+.gradle/
+android/build/
+android/app/build/
+android/local.properties
+android/.externalNativeBuild/
+android/.cxx/
+*.so

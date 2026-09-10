@@ -1,8 +1,16 @@
-# NXShield — 自研安卓 APK 加固控制台
+# NXShield — 自研安卓 APK 加固应用
 
 NXShield 是一个自研的 Android APK 加固工具，包含完整的加固流水线（DEX 解析、抽函数、NX-VM
-虚拟化、敏感字符串加密、assets 加密）以及 WeKit 风格的四栏控制台（主页 / 功能 / 日志 / 设置）。
-所有核心算法均为自行实现，不依赖第三方加固 SDK。
+虚拟化、敏感字符串加密、assets 加密）。所有核心算法均为自行实现，不依赖第三方加固 SDK。
+
+仓库包含两个可运行的实现：
+
+| 模块 | 说明 |
+| --- | --- |
+| `android/` | **Android 原生 App（Jetpack Compose / Kotlin）**，WeKit 风格四栏 UI，在设备上完成 APK 加固。用 Android Studio 打开构建，产出可安装 APK |
+| `backend/` + `frontend/` | **Web 控制台（FastAPI + Vue3）**，原理验证版，可在浏览器完成加固 |
+
+两套实现的加固算法一致：DEX 原位补丁 + NXS1 封装加密 + NX-VM 镜像 + 敏感字符串表 + assets 加密。
 
 > 仅用于加固你拥有合法授权的应用。
 
@@ -112,3 +120,26 @@ cd backend && python3 -m unittest tests.test_engine -v
 
 当前仓库已实现完整的离线分析与加密流水线、产物载荷与自动生成的 JNI 桥接源码；
 第 1 种方式的 `.so` 需要 NDK 环境编译，第 2 种方式的 DEX 重写器可作为后续增量模块接入。
+
+## Android 端（android/）
+
+`android/` 子目录是独立的 Android Studio 工程（最小依赖，仅 AndroidX + Compose）：
+
+```
+android/app/src/main/java/
+  com/nxshield/app/          # Application + MainActivity（深色模式全局状态）
+  com/nxshield/app/ui/       # Compose UI：四栏导航（主页/功能/日志/设置）
+  com/nxshield/engine/       # 自研加固引擎（Kotlin 移植）
+    DexFile.kt               # DEX 解析（string/type/proto/method/class + code_item）
+    NxCrypto.kt              # NXS1 封装（KDF+HMAC+自逆滚动 XOR）
+    ApkIo.kt                 # ZIP/APK 解析与重建（新增条目、压缩保持）
+    NxVm.kt                  # 抽函数 + NX-VM 镜像
+    NxStrings.kt             # 敏感字符串（中文/vip/premium）原位保护
+    NxAssets.kt              # assets 加密
+    Packer.kt                # 加固流程编排 + 日志埋点
+  com/nxshield/runtime/      # 运行时桩：NXRuntime / NXVM / NXLog / NXReflect
+```
+
+构建出 APK 后：主页选择 APK → 配置加固项 → 开始加固 → 日志页回溯记录 → 导出加固 APK。
+
+详细说明见 `android/README.md`。
