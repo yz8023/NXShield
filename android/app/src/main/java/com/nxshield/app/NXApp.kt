@@ -1,6 +1,8 @@
 package com.nxshield.app
 
 import android.app.Application
+import java.io.File
+import java.util.Date
 
 class NXApp : Application() {
     override fun onCreate() {
@@ -12,6 +14,22 @@ class NXApp : Application() {
                 else android.util.Log.INFO,
                 "NXShield/$tag", msg,
             )
+        }
+        installCrashHandler()
+    }
+
+    private fun installCrashHandler() {
+        val prev = Thread.getDefaultUncaughtExceptionHandler()
+        Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->
+            runCatching {
+                val f = File(filesDir, "nxshield/crash.log")
+                f.parentFile?.mkdirs()
+                f.appendText(
+                    "[${Date()}] ${thread.name}\n" +
+                        android.util.Log.getStackTraceString(throwable) + "\n\n",
+                )
+            }
+            prev?.uncaughtException(thread, throwable)
         }
     }
 }

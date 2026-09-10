@@ -1,5 +1,8 @@
 package com.nxshield.app.ui.pages
 
+import android.app.Activity
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -27,8 +30,8 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
-import com.nxshield.app.NXAppState
 import com.nxshield.engine.NxLogger
 import com.nxshield.engine.Packer
 import kotlinx.coroutines.Dispatchers
@@ -39,7 +42,7 @@ import org.json.JSONObject
 @Composable
 fun HomePage(modifier: Modifier = Modifier) {
     val scope = rememberCoroutineScope()
-    val ctx = NXAppState.ctx()
+    val ctx = LocalContext.current
     val logger = remember { NxLogger(ctx) }
     val packer = remember { Packer(ctx, logger) }
 
@@ -49,19 +52,56 @@ fun HomePage(modifier: Modifier = Modifier) {
     var running by remember { mutableStateOf(false) }
     var progress by remember { mutableStateOf("等待选择 APK") }
     var lastStats by remember { mutableStateOf("") }
+    var exportReady by remember { mutableStateOf(false) }
     var useVm by remember { mutableStateOf(true) }
     var useStrings by remember { mutableStateOf(true) }
     var useAssets by remember { mutableStateOf(true) }
     var drain by remember { mutableStateOf(60) }
 
-    val pick = pickerLauncher(ctx, scope) { name, bytes ->
-        apkName = name; apkBytes = bytes; running = false
-        progress = "选择成功: $name"
-        stdInfo = runCatching { packer.analyze(bytes) }.getOrNull()
+    val pickLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartActivityForResult(),
+    ) { result ->
+        if (result.resultCode == Activity.RESULT_OK) {
+            val uri = result.data?.data
+            if (uri != null) {
+                scope.launch {
+                    val bytes = withContext(Dispatchers.IO) { readBytes(ctx, uri) }
+                    if (bytes != null) {
+                        apkName = displayName(uri)
+                        apkBytes = bytes
+                        running = false
+                        progress = "选择成功: $apkName"
+                        stdInfo = runCatching { packer.analyze(bytes) }.getOrNull()
+                    } else {
+                        progress = "读取文件失败，请重试"
+                    }
+                }
+            }
+        }
     }
-    val exportResult = latestOutput(ctx)
-    val outFile = exportResult?.second
-    val export = exporterLauncher(ctx) { latestOutput(ctx)?.second }
+
+    val exportLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("application/vnd.android.package-archive"),
+    ) { uri ->
+        if (uri != null) {
+            scope.launch {
+                val ok = withContext(Dispatchers.IO) {
+                    val src = latestOutputFile(ctx) ?: return@withContext false
+                    runCatching {
+                        ctx.contentResolver.openOutputStream(uri)?.use { out ->
+                            src.inputStream().use { it.copyTo(out) }
+                        }
+                    }.isSuccess
+                }
+                progress = if (ok) "已导出加固 APK" else "导出失败"
+            }
+        }
+    }
+
+    fun openPicker() {
+        runCatching { pickLauncher.launch(pickIntent()) }
+            .onFailure { progress = "无法打开文件选择器: ${it.message}" }
+    }
 
     Column(
         modifier = modifier
@@ -79,7 +119,7 @@ fun HomePage(modifier: Modifier = Modifier) {
                 Text("选择 APK", style = MaterialTheme.typography.titleMedium)
                 Spacer(Modifier.height(8.dp))
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedButton(onClick = { pick.launch(pickIntent()) }) {
+                    OutlinedButton(onClick = { openPicker() }) {
                         Text(if (apkName.isEmpty()) "选择文件" else apkName)
                     }
                     if (stdInfo != null) {
@@ -117,6 +157,7 @@ fun HomePage(modifier: Modifier = Modifier) {
                 val bytes = apkBytes
                 if (bytes == null) { progress = "请先选择 APK"; return@Button }
                 running = true
+                exportReady = false
                 val jobId = logger.newJob(apkName)
                 logger.logFeature(jobId, "NX-VM", useVm)
                 logger.logFeature(jobId, "strings", useStrings)
@@ -134,6 +175,7 @@ fun HomePage(modifier: Modifier = Modifier) {
                         }
                         lastStats = "完成 · 抽取 ${stats.methodsExtracted} · 字符串 ${stats.stringsProtected} · ${stats.elapsedMs}ms · ${stats.outSize / 1024}KB"
                         progress = "完成"
+                        exportReady = latestOutputFile(ctx) != null
                     } catch (e: Exception) {
                         progress = "失败: ${e.message}"
                         logger.log(jobId, "error", "task_error", mapOf("msg" to (e.message ?: "")))
@@ -163,9 +205,12 @@ fun HomePage(modifier: Modifier = Modifier) {
             HorizontalDivider()
             Spacer(Modifier.height(8.dp))
             Text(lastStats)
-            if (outFile != null) {
+            if (exportReady) {
                 Spacer(Modifier.height(8.dp))
-                Button(onClick = { export.launch("nxshield_protected.apk") }) { Text("导出加固 APK") }
+                Button(onClick = {
+                    runCatching { exportLauncher.launch("nxshield_protected.apk") }
+                        .onFailure { progress = "无法导出: ${it.message}" }
+                }) { Text("导出加固 APK") }
             }
         }
     }

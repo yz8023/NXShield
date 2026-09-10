@@ -136,7 +136,7 @@ class Packer(
         val stats = Stats(
             classes = 0, dexCount = dexFiles.size,
             stringsProtected = stringsProtected, methodsExtracted = methodsExtracted,
-            assetsEncrypted = 0, elapsedMs = elapsed, outSize = outBytes.size,
+            assetsEncrypted = 0, elapsedMs = elapsed, outSize = outBytes.size.toLong(),
         )
         logger.log(jobId, "info", "task_done", mapOf(
             "elapsedMs" to elapsed, "extracted" to methodsExtracted,

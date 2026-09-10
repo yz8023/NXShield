@@ -18,7 +18,7 @@ object NxCrypto {
         for (i in data.indices) {
             val m = mode(key[i % key.size])
             acc = (acc + key[i % key.size].toInt()) and 0xFF
-            out[i] = (data[i].toInt() xor acc) and 0xFF xor (acc * m) and 0xFF toByte
+            out[i] = (((data[i].toInt() xor acc) and 0xFF) xor ((acc * m) and 0xFF)).toByte()
         }
         return out
     }

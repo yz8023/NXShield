@@ -112,7 +112,6 @@ object ApkIo {
     fun rebuild(apk: ApkFixtures, replacements: Map<String, ByteArray>, level: Int = 2): ByteArray {
         val bos = ByteArrayOutputStream()
         val localOffsets = HashMap<String, Long>()
-        val central = ByteArrayOutputStream()
 
         fun writeLocal(name: String, compression: Int, crc: Int, csize: Int, usize: Int, data: ByteArray) {
             val nameBytes = name.toByteArray(Charsets.UTF_8)
@@ -167,6 +166,7 @@ object ApkIo {
 
         // 中央目录
         val allNames = (apk.entries.map { it.name } + replacements.keys).distinct()
+        val centralBytes = ByteArray(allNames.sumOf { it.toByteArray(Charsets.UTF_8).size + 46 })
         var centralOff = 0
         for (name in allNames) {
             val nameBytes = name.toByteArray(Charsets.UTF_8)
@@ -191,38 +191,38 @@ object ApkIo {
                 compression = existing.compression
                 cflag = existing.flags
             }
-            central.w4(centralOff, CENTRAL_SIG)
-            central.w2(centralOff + 4, 20)
-            central.w2(centralOff + 6, 20)
-            central.w2(centralOff + 8, cflag)
-            central.w2(centralOff + 10, compression)
-            central.w2(centralOff + 12, 0); central.w2(centralOff + 14, 0)
-            central.w4(centralOff + 16, storedCrc.toLong())
-            central.w4(centralOff + 20, storedCsize.toLong())
-            central.w4(centralOff + 24, storedUsize.toLong())
-            central.w2(centralOff + 28, nameBytes.size)
-            central.w2(centralOff + 30, 0)
-            central.w2(centralOff + 32, 0)
-            central.w2(centralOff + 34, 0)
-            central.w2(centralOff + 36, 0)
-            central.w4(centralOff + 38, 0)
-            central.w4(centralOff + 42, localOffsets[name]!!)
-            nameBytes.copyInto(central, centralOff + 46)
+            centralBytes.w4(centralOff, CENTRAL_SIG)
+            centralBytes.w2(centralOff + 4, 20)
+            centralBytes.w2(centralOff + 6, 20)
+            centralBytes.w2(centralOff + 8, cflag)
+            centralBytes.w2(centralOff + 10, compression)
+            centralBytes.w2(centralOff + 12, 0); centralBytes.w2(centralOff + 14, 0)
+            centralBytes.w4(centralOff + 16, storedCrc.toLong())
+            centralBytes.w4(centralOff + 20, storedCsize.toLong())
+            centralBytes.w4(centralOff + 24, storedUsize.toLong())
+            centralBytes.w2(centralOff + 28, nameBytes.size)
+            centralBytes.w2(centralOff + 30, 0)
+            centralBytes.w2(centralOff + 32, 0)
+            centralBytes.w2(centralOff + 34, 0)
+            centralBytes.w2(centralOff + 36, 0)
+            centralBytes.w4(centralOff + 38, 0)
+            centralBytes.w4(centralOff + 42, localOffsets[name]!!)
+            nameBytes.copyInto(centralBytes, centralOff + 46)
             centralOff += 46 + nameBytes.size
         }
 
         // EOCD
         val output = bos.toByteArray()
-        val out = ByteArray(output.size + central.size() + 22)
+        val out = ByteArray(output.size + centralBytes.size + 22)
         output.copyInto(out, 0)
-        central.toByteArray().copyInto(out, output.size)
-        val eocd = output.size + central.size()
+        centralBytes.copyInto(out, output.size)
+        val eocd = output.size + centralBytes.size
         out.w4(eocd, EOCD_SIG)
         out.w2(eocd + 4, 0)
         out.w2(eocd + 6, 0)
         out.w2(eocd + 8, allNames.size)
         out.w2(eocd + 10, allNames.size)
-        out.w4(eocd + 12, central.size().toLong())
+        out.w4(eocd + 12, centralBytes.size.toLong())
         out.w4(eocd + 16, output.size.toLong())
         out.w2(eocd + 20, 0)
         return out
