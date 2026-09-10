@@ -21,13 +21,16 @@ class NxVm(
         val all = dex.methodsWithCode()
         val picked = ArrayList<MethodCode>()
         for (m in all) {
-            val (registers, ins, lenBytes) = readCodeInsns(dex.data, m.codeOff)
+            val (registers, ins, lenBytes) = runCatching { readCodeInsns(dex.data, m.codeOff) }
+                .getOrNull() ?: continue
             if (registers <= 0 || ins <= 0) continue
             if (lenBytes < MIN_INSNS * 2) continue
             if (lenBytes > MAX_INSNS * 2) continue
-            // 跳过构造函数/静态块
-            val sig = dex.methodSig(m.methodIdx)
+            // 跳过构造函数/静态块/原生方法
+            val sig = runCatching { dex.methodSig(m.methodIdx) }.getOrNull() ?: continue
             if (sig.contains("<init>") || sig.contains("<clinit>") || sig.contains("native")) continue
+            // 仅抽取 void 方法：占位指令使用 return-void(0x0e00)，非 void 会被校验器拒绝
+            if (!sig.endsWith(":V")) continue
             picked.add(m)
             if (picked.size >= MAX_METHODS) break
         }
