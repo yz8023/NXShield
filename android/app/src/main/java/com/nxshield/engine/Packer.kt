@@ -26,6 +26,8 @@ class Packer(
         val key: String = "NXShield-Default-Key",
         val drain: Int = 60,                // 抽取比例 0-100
         val extraDex: Boolean = true,       // 多 dex 全部处理
+        val deepProtect: Boolean = false,   // 深度保护：覆盖方法体/抹掉字符串（无运行时接管会破坏运行）
+        val sign: Boolean = true,           // 产出前自动签名
     )
 
     data class Stats(
@@ -95,20 +97,24 @@ class Packer(
                 if (payload.isNotEmpty()) {
                     val nxsName = "assets/nxshield/strings_${crc32(e.name.toByteArray()).toString(16)}.json.nxs"
                     replacements[nxsName] = NxCrypto.wrap(payload.toString().toByteArray(Charsets.UTF_8), key)
-                    stringsProtected += strings.patchInPlace(hits)
+                    // 深度保护才原位抹掉字符串，否则保留原文保证应用可运行
+                    stringsProtected += if (opt.deepProtect) strings.patchInPlace(hits) else hits.size
                     logger.log(jobId, "feature", "strings", mapOf("dex" to e.name, "protected" to stringsProtected))
                 }
             }
 
-            // 2) NX-VM 抽函数
+            // 2) NX-VM 抽函数：抽取方法体并加密写入 lib/<abi>/libnxvm_*.so
             if (opt.enableVm) {
                 val vmx = NxVm(dex, key)
                 val total = vmx.candidates().size
                 val budget = ((total.toDouble() * opt.drain) / 100.0).toInt().coerceAtLeast(1)
-                val ex = vmx.extract({ true }, budget)
+                val ex = vmx.extract({ true }, budget, overwrite = opt.deepProtect)
                 methodsExtracted += ex.count
                 if (ex.count > 0) {
-                    replacements["assets/nxshield/vm_${crc32(e.name.toByteArray()).toString(16)}.nxvm.nxs"] = ex.image
+                    val tag = e.name.removeSuffix(".dex").replace(Regex("[^A-Za-z0-9]"), "_")
+                    for (abi in abisOf(fixtures)) {
+                        replacements["lib/$abi/libnxvm_$tag.so"] = ex.image
+                    }
                     logger.log(jobId, "feature", "vm", mapOf("dex" to e.name, "methods" to ex.count))
                 }
             }
@@ -125,9 +131,17 @@ class Packer(
 
         // 4) 重打包
         onProgress("重打包 APK...")
-        val outBytes = ApkIo.rebuild(fixtures, replacements)
+        val rebuilt = ApkIo.rebuild(fixtures, replacements)
 
-        // 5) 输出到 job 缓存目录，供 UI 导出
+        // 5) 签名（v1+v2），产出可安装 APK
+        val outBytes = if (opt.sign) {
+            onProgress("签名 APK...")
+            NxApkSigner.sign(ctx, rebuilt, File(logger.cacheDir(jobId), "sign"))
+        } else {
+            rebuilt
+        }
+
+        // 6) 输出到 job 缓存目录，供 UI 导出
         val outFile = File(logger.cacheDir(jobId), "protected.apk")
         outFile.parentFile?.mkdirs()
         outFile.writeBytes(outBytes)
@@ -149,5 +163,13 @@ class Packer(
 
     private fun crc32(b: ByteArray): Long {
         val c = java.util.zip.CRC32(); c.update(b); return c.value
+    }
+
+    /** 探测 APK 已有的 ABI；没有原生库时默认覆盖主流 ABI */
+    private fun abisOf(fixtures: ApkFixtures): List<String> {
+        val abis = fixtures.entries.mapNotNull { e ->
+            Regex("^lib/([^/]+)/.*\\.so$").find(e.name)?.groupValues?.get(1)
+        }.distinct()
+        return abis.ifEmpty { listOf("arm64-v8a", "armeabi-v7a") }
     }
 }

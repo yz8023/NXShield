@@ -32,6 +32,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import com.nxshield.engine.Export
 import com.nxshield.engine.NxLogger
 import com.nxshield.engine.Packer
 import kotlinx.coroutines.Dispatchers
@@ -56,6 +57,7 @@ fun HomePage(modifier: Modifier = Modifier) {
     var useVm by remember { mutableStateOf(true) }
     var useStrings by remember { mutableStateOf(true) }
     var useAssets by remember { mutableStateOf(true) }
+    var deepProtect by remember { mutableStateOf(false) }
     var drain by remember { mutableStateOf(60) }
 
     val pickLauncher = rememberLauncherForActivityResult(
@@ -141,6 +143,7 @@ fun HomePage(modifier: Modifier = Modifier) {
                 ToggleRow("NX-VM 抽函数", useVm) { useVm = it }
                 ToggleRow("敏感字符串保护", useStrings) { useStrings = it }
                 ToggleRow("assets 加密", useAssets) { useAssets = it }
+                ToggleRow("深度保护（覆盖代码，应用可能无法运行）", deepProtect) { deepProtect = it }
                 Spacer(Modifier.height(12.dp))
                 Text("抽取比例: $drain%", style = MaterialTheme.typography.bodySmall)
                 Slider(
@@ -170,6 +173,7 @@ fun HomePage(modifier: Modifier = Modifier) {
                                 Packer.Options(
                                     enableVm = useVm, enableStrings = useStrings,
                                     enableAssets = useAssets, drain = drain,
+                                    deepProtect = deepProtect, sign = true,
                                 ),
                             ) { progress = it }
                         }
@@ -207,10 +211,21 @@ fun HomePage(modifier: Modifier = Modifier) {
             Text(lastStats)
             if (exportReady) {
                 Spacer(Modifier.height(8.dp))
-                Button(onClick = {
-                    runCatching { exportLauncher.launch("nxshield_protected.apk") }
-                        .onFailure { progress = "无法导出: ${it.message}" }
-                }) { Text("导出加固 APK") }
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Button(onClick = {
+                        scope.launch {
+                            val f = latestOutputFile(ctx)
+                            if (f == null) { progress = "没有可导出的产物"; return@launch }
+                            val name = (apkName.removeSuffix(".apk").ifEmpty { "nxshield" }) + "_nxshield.apk"
+                            val path = withContext(Dispatchers.IO) { Export.saveToDownloads(ctx, name, f.readBytes()) }
+                            progress = if (path != null) "已保存到 $path" else "保存失败，请检查存储权限"
+                        }
+                    }) { Text("保存到 Download") }
+                    OutlinedButton(onClick = {
+                        runCatching { exportLauncher.launch("nxshield_protected.apk") }
+                            .onFailure { progress = "无法导出: ${it.message}" }
+                    }) { Text("分享/另存") }
+                }
             }
         }
     }

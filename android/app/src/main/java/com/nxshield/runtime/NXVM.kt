@@ -31,4 +31,12 @@ object NXVM {
 
     fun load(ctx: Context, name: String = "vm.nxvm"): List<Record> =
         parse(NXRuntime.vmImage(ctx, name))
+
+    /** 从 nativeLibraryDir 的 .so 载荷加载（抽取函数镜像），找不到则回退 assets */
+    fun loadNative(ctx: Context, libName: String): List<Record> =
+        NXRuntime.loadNativePayload(ctx, libName)?.let { parse(it) } ?: emptyList()
+
+    /** 加载全部 libnxvm_*.so 载荷 */
+    fun loadAllNative(ctx: Context): List<Record> =
+        NXRuntime.listNativePayloads(ctx).flatMap { loadNative(ctx, it) }
 }

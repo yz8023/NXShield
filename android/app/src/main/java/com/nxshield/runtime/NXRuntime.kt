@@ -21,6 +21,23 @@ object NXRuntime {
         return NxCrypto.unwrap(raw, keyBytes())
     }
 
+    /** 从 nativeLibraryDir 读取 lib/<abi>/ 下被抽取出来的 .so 载荷（抽取函数镜像） */
+    fun loadNativePayload(ctx: Context, libName: String): ByteArray? {
+        val dir = ctx.applicationInfo.nativeLibraryDir ?: return null
+        val f = java.io.File(dir, libName)
+        if (!f.exists()) return null
+        return runCatching { NxCrypto.unwrap(f.readBytes(), keyBytes()) }.getOrNull()
+    }
+
+    /** 列出 nativeLibraryDir 下所有 libnxvm_*.so 载荷 */
+    fun listNativePayloads(ctx: Context): List<String> {
+        val dir = ctx.applicationInfo.nativeLibraryDir ?: return emptyList()
+        return java.io.File(dir).listFiles()
+            ?.map { it.name }
+            ?.filter { it.startsWith("libnxvm_") && it.endsWith(".so") }
+            ?: emptyList()
+    }
+
     /** 字符串保护表（index|b64 行）解析为 Map */
     fun stringTable(ctx: Context, dexName: String = "strings.json"): Map<Int, String> {
         val text = loadAsset(ctx, dexName).toString(Charsets.UTF_8)

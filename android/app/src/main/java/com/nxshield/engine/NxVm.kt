@@ -37,7 +37,11 @@ class NxVm(
         return picked
     }
 
-    fun extract(sigFilter: (String) -> Boolean, maxCount: Int = Int.MAX_VALUE): Extracted {
+    fun extract(
+        sigFilter: (String) -> Boolean,
+        maxCount: Int = Int.MAX_VALUE,
+        overwrite: Boolean = false,
+    ): Extracted {
         val picked = candidates().filter { sigFilter(dex.methodSig(it.methodIdx)) }
         val selected = if (maxCount == Int.MAX_VALUE) picked else picked.take(maxCount)
         val bos = java.io.ByteArrayOutputStream()
@@ -63,10 +67,13 @@ class NxVm(
             bos.write(rec.toByteArray())
             names.add(dex.methodSig(m.methodIdx))
             stored++
-            // 原位替换：前 2 字节写 return-void(0x0e00)，其余清零
-            dex.data.w2(m.codeOff + 16, 0x0e00)
-            for (i in m.codeOff + 18 until m.codeOff + 16 + lenBytes) {
-                dex.data[i] = 0x00
+            // 深度保护：原位替换为 return-void(0x0e00)，其余清零。
+            // 默认关闭——没有运行时接管时覆盖方法体会导致崩溃。
+            if (overwrite) {
+                dex.data.w2(m.codeOff + 16, 0x0e00)
+                for (i in m.codeOff + 18 until m.codeOff + 16 + lenBytes) {
+                    dex.data[i] = 0x00
+                }
             }
         }
 
